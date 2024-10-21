@@ -1,14 +1,14 @@
 
 import pandas as pd
 import numpy as np
-import math as math
 import random as rn
 from matplotlib import pyplot as plt
 import matplotlib as mtl
 from fitter import Fitter
 from scipy import stats
-from operator import le
 import multiprocessing as mp
+import os
+from datetime import datetime
 
 pd.options.mode.chained_assignment = None  # default='warn' # to supress "A value is trying to be set on a copy of a slice from a DataFrame"
 
@@ -54,8 +54,7 @@ def one_ped_decision(ped_data, ped_idx, distance_grid, const):
 
     # If ped already left, skip it
     elif ped_data.x[ped_idx][-1] == -1 and ped_data.y[ped_idx][-1] == -1:
-        ped_data.dec_x[ped_idx] = np.nan
-        ped_data.dec_y[ped_idx] = np.nan
+        return ped_data
 
         # print('   Ped ' + str(ped_idx) + ' already left, therefore skip')
 
@@ -149,7 +148,7 @@ def cell_guest(ped_data, const, x, y):
     return ped_id
 
 
-def execute_all_steps(ped_data, const, act_t, left_peds):
+def execute_all_steps(ped_data, const, act_t, peds_in, left_peds):
 # Move pedestrians to cell they picked, if it is empty
 # Kind of smart logic to resolve the situation when the selected cell is occupied but the blocker ped would move
 # I.e. logic here enables the decision algorithm to pick occupied cell
@@ -172,9 +171,13 @@ def execute_all_steps(ped_data, const, act_t, left_peds):
             if ped_data.dec_x[peds_to_move[k]] == -1 and ped_data.dec_y[peds_to_move[k]] == -1:
                 ped_data = save_step(ped_data, peds_to_move[k], ped_data.dec_x[peds_to_move[k]], ped_data.dec_y[peds_to_move[k]], act_t)
 
+                ped_data.dec_x[peds_to_move[k]] = np.nan
+                ped_data.dec_y[peds_to_move[k]] = np.nan
+
                 #print('     Ped ' + str(peds_to_move[k]) + ' left')
 
                 # Add the left ped into the set to control the number of them
+                peds_in = np.delete(peds_in, np.where(peds_in == peds_to_move[k])[0][0])
                 left_peds.add(peds_to_move[k])
 
                 chance_to_move = True
@@ -200,7 +203,7 @@ def execute_all_steps(ped_data, const, act_t, left_peds):
                     # print('     Ped ' + str(peds_to_move[k]) + ' blocker may move')
 
 
-    return ped_data, left_peds
+    return ped_data, peds_in, left_peds
 
 """#Generate map and peds"""
 
@@ -252,10 +255,10 @@ def make_storey(num_classes):
     storey = np.pad(storey, pad_width=1, mode='constant', constant_values=np.inf)
 
 
-    print('number of rows:', len(storey))
-    print('number of columns:', len(storey[0]))
-    print('middle:',int(len(storey[0])/2))
-    print('storey shape:',storey.shape)
+    #print('number of rows:', len(storey))
+    #print('number of columns:', len(storey[0]))
+    #print('middle:',int(len(storey[0])/2))
+    #print('storey shape:',storey.shape)
 
     return storey
 
@@ -311,7 +314,7 @@ def generate_ped(num_ped_in_class, storey, seed_value=None):
 
     return np.array(x), np.array(y)
 
-def show_storey(storey, pedestrian_x, pedestrian_y):
+def show_storey(storey, pedestrian_x, pedestrian_y, const):
     # Replace np.inf with np.nan for proper handling in the plot
     storey = np.where(np.isinf(storey), np.nan, storey)
 
@@ -330,10 +333,14 @@ def show_storey(storey, pedestrian_x, pedestrian_y):
 
     # Show the plot
     plt.legend(loc='upper left', bbox_to_anchor=(1, 1), title='Legend')  # Adjust the location as needed
-    plt.title('Storey Distance Heatmap')
+    plt.title(f"Storey Distance Heatmap for {const['num_peds_in_class']} peds / {const['num_of_classes']} classes")
 
     # Save the plot to a file
-    plt.savefig('heatmap_with_positions.png', bbox_inches='tight')  # Use bbox_inches='tight' to adjust the bounding box
+    # Save the plot to a file
+    file_path = os.path.join(const['folder_name'],
+                             f"heatmap_with_positions_{const['num_of_sim']}_sim_{const['num_peds_in_class']}p_{const['num_of_classes']}c.png")
+    plt.savefig(file_path, bbox_inches='tight')
+  # Use bbox_inches='tight' to adjust the bounding box
 
     plt.show()
 
@@ -382,7 +389,7 @@ def show_aerial_plot(ped_data, const):
     # Plot special markers (e.g., attractors)
     plt.plot(const['attractor_y'], const['attractor_x'], 'r*', label='Attractor', markersize=10)
 
-    plt.title('Aerial Plot')
+    plt.title(f"Aerial plot of {const['num_peds_in_class']} peds / {const['num_of_classes']} classes")
     plt.xlabel(r'$x \,\,\mathrm{[m]}$')
     plt.ylabel(r'$y \,\,\, \mathrm{[m]}$')
     plt.xlim(-1, const['grid_size_y'])
@@ -396,7 +403,10 @@ def show_aerial_plot(ped_data, const):
     plt.gca().invert_yaxis()  # Reverse the direction of the y-axis
 
     # Save the plot to a file
-    plt.savefig('aerial_plot.png', bbox_inches='tight')  # Use bbox_inches='tight' to adjust the bounding box
+    file_path = os.path.join(const['folder_name'],
+                             f"aerial_plot_{const['num_of_sim']}_sim_{const['num_peds_in_class']}p_{const['num_of_classes']}c.png")
+    plt.savefig(file_path, bbox_inches='tight')
+  # Use bbox_inches='tight' to adjust the bounding box
 
     plt.show()
 
@@ -437,7 +447,78 @@ def check_waiting_pedestrians(ped_data, const):
     # Start checking from the exit cell
     return check_neighbors(exit_x, exit_y)
 
-def single_simulation(k, x, y, const, storey, num_of_sim = 5):
+
+def make_evac_times_plot(simulations_time, const, show=True):
+    #print('\nEvacuation times:',simulations_time)
+    plt.hist(simulations_time, bins=10, edgecolor='black', density=True, color='green')
+
+    # Fit a normal distribution to the data
+    mu, std = stats.norm.fit(simulations_time)  # Estimate parameters
+
+    # Create an array of x values for the fitted distribution
+    x = np.linspace(min(simulations_time), max(simulations_time), 100)
+    p = stats.norm.pdf(x, mu, std)  # Calculate the PDF
+
+    # Plot the fitted distribution
+    #plt.plot(x, p, 'r-', linewidth=2, label='Fitted Normal Distribution')  # Fitted line
+    plt.xlabel('Evacuation time')
+    plt.ylabel('Frequency')
+    plt.title(f"Histogram of evacuation times\nduring {const['num_of_sim']} simulations with {const['num_peds_in_class']} p / {const['num_of_classes']} c")
+
+    # Save the plot to a file
+    file_path = os.path.join(const['folder_name'],
+                             f"sim_time_{const['num_of_sim']}_sim_{const['num_peds_in_class']}p_{const['num_of_classes']}c.png")
+    plt.savefig(file_path, bbox_inches='tight')
+
+    # Show plot only if 'show' is True
+    if show:
+        plt.show()
+
+    # Clear the plot so that subsequent plots do not overlap
+    plt.clf()
+
+
+def make_waiting_hist(waiting_peds_all, const, show=True):
+    # Step 1: Combine all sub-arrays into one
+    combined_data = np.concatenate(waiting_peds_all)
+
+    # Step 2: Create a histogram for the combined data
+    plt.figure(figsize=(8, 6))
+    plt.hist(combined_data, bins=10, edgecolor='black', label='Histogram', alpha=0.7,
+             density=True)  # Use density=True for normalized histogram
+    params = stats.expon.fit(combined_data)
+
+    # Generate x values for the fitted distribution
+    x = np.linspace(0, max(combined_data), 100)
+
+    # Calculate the PDF of the fitted distribution
+    p = stats.expon.pdf(x, *params)
+
+    # Plot the fitted exponential distribution
+    plt.plot(x, p, 'r-', linewidth=2, label='Fitted Exponential')  # Fitted line
+    plt.title(f"Histogram of all waiting peds\nduring all {const['num_of_sim']} runs with {const['num_peds_in_class']}p / {const['num_of_classes']}c")
+    plt.xlabel('Number of Waiting Peds')
+    plt.ylabel('Density')
+    plt.legend()
+
+    # Save the plot to a file
+    file_path = os.path.join(const['folder_name'],
+                             f"wait_peds_{const['num_of_sim']}_sim_{const['num_peds_in_class']}p_{const['num_of_classes']}c.png")
+    plt.savefig(file_path, bbox_inches='tight')
+
+    # Show plot only if 'show' is True
+    if show:
+        plt.show()
+
+    # Clear the plot so that subsequent plots do not overlap
+    plt.clf()
+
+
+
+
+def single_simulation(k, x, y, const, storey):
+
+    peds_in = np.arange(const['N_ped'])
 
     t = np.zeros(len(x))
     # Init data containers
@@ -450,7 +531,7 @@ def single_simulation(k, x, y, const, storey, num_of_sim = 5):
     i=0
     act_t = 0
     # Iterate while all pedestrians wont leave the storey
-    print('\nSimulation', k, 'started...')
+    #print('  Simulation', k, 'started...')
     while len(left_peds) < const['N_ped']:
 
         act_t = (i+1)*const['dt']                                       # i+1 is current itteration as i = 0  was defined in init step
@@ -463,18 +544,18 @@ def single_simulation(k, x, y, const, storey, num_of_sim = 5):
 
         # model desision loop over all peds
         #print('   Decision started')
-        rep2 = range(const['N_ped'])
-        for j in rep2:
+        #rep2 = range(const['N_ped'])
+        for j in peds_in:
             ped_data = one_ped_decision(ped_data, j, storey, const)
 
         # conflict resolution
         ped_data = resolve_conflicts(ped_data, const, act_t)
 
         # model movement loop over all peds
-        ped_data, left_peds = execute_all_steps(ped_data, const, act_t, left_peds)
+        ped_data, peds_in, left_peds = execute_all_steps(ped_data, const, act_t, peds_in, left_peds)
         i += 1
 
-    print('\n Simulation', k, 'finished')
+    #print('     Simulation', k, 'finished')
 
     return ped_data, waiting_peds, act_t
 
@@ -503,66 +584,101 @@ def simulation_model(x, y, const, storey, num_of_sim=5):
 
 
 
-
-
-
 #============================================#
 #              SCRIPT STARTS HERE            #
 #============================================#
-if __name__ == "__main__":  # Add this line
+if __name__ == "__main__":
+    all_data = []       # This will store the ped_data for each simulation
+    waiting_data = []  # This will store the waiting times separately
 
-    #======================#
-    #     PRELIMINARIES    #
-    #======================#
-
-    num_of_classes = 8
-    num_peds_in_class = 10
-
-    # Generate storey with given number of classes
-    storey = make_storey(num_of_classes)
-
-    # Constants - dictionary
-    const = {'N_ped': 0,                                # numer of peds in the system
-             'N_step': 30,                              # number of steps
-             'grid_size_x': 2 + num_of_classes/2*11,    # number of rows
-             'grid_size_y': 26,                         # number of columns
-             'dt': 1,                                   # time step length [s]
-             'attractor_x': 1,                          # x position of attractor [cell]
-             'attractor_y': 13,                         # y position of attractor [cell]
-             'p': 0.9                                   # probability of leaving the system
-            }
-
-
-    #======================#
-    #         MODEL        #
-    #======================#
-
-    '''
-    # Convert to DataFrame
-    const_df = pd.DataFrame(list(const.items()), columns=['Parameter', 'Value'])
-    const_df.to_csv('const_parameters.csv', index=False)
-    '''
+    num_of_sim = 12
+    for num_of_classes in [6,8,10,12,14]:
+        # Generate storey with given number of classes
+        storey = make_storey(num_of_classes)
+        for num_peds_in_class in [5,10,15,20,25]:
 
 
 
-
-    # Randomly generate given number of pedestrians in each class of the storey
-    # Use seed to generate still the same positions
-    x, y = generate_ped(num_peds_in_class, storey, 42)
-    print('X-coordinates:', x)
-    print('Y-coordinates:', y)
-    show_storey(storey, x, y)
+            # Create folder based on the number of simulations, peds, and classes
+            folder_name = f"{num_of_sim}_sim_{num_peds_in_class}p_{num_of_classes}c"
+            if not os.path.exists(folder_name):
+                os.makedirs(folder_name)
 
 
-    # Set number of pedestrians
-    const['N_ped'] = len(x)
 
-    const['grid_size_x'] = storey.shape[0]
-    const['grid_size_y'] = storey.shape[1]
+            # Constants - dictionary
+            const = {'N_ped': 0,                                # numer of peds in the system
+                     'grid_size_x': 0,                          # number of rows
+                     'grid_size_y': 0,                          # number of columns
+                     'dt': 1,                                   # time step length [s]
+                     'attractor_x': 1,                          # x position of attractor [cell]
+                     'attractor_y': 13,                         # y position of attractor [cell]
+                     'p': 0.9,                                  # probability of leaving the system
+                     'num_peds_in_class': num_peds_in_class,
+                     'num_of_sim': num_of_sim,
+                     'num_of_classes': num_of_classes,
+                     'folder_name': folder_name
+                    }
 
 
-    # Run simulation
-    ped_data_all, waiting_peds_all, simulations_time = simulation_model(x, y, const, storey, num_of_sim = 5)
+
+            #======================#
+            #         MODEL        #
+            #======================#
+
+            # Use seed to generate still the same positions
+            x, y = generate_ped(num_peds_in_class, storey, 42)
+            #print('X-coordinates:', x)
+            #print('Y-coordinates:', y)
+            show_storey(storey, x, y, const)
+
+
+            # Set number of pedestrians
+            const['N_ped'] = len(x)
+
+            const['grid_size_x'] = storey.shape[0]
+            const['grid_size_y'] = storey.shape[1]
+
+
+            print(f"\nSimulation model for {num_peds_in_class} peds / {num_of_classes} classes started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            # Run simulation
+            ped_data_all, waiting_peds_all, simulations_time = simulation_model(x, y, const, storey, num_of_sim)
+
+            print(f"\nSimulation model for {num_peds_in_class} peds / {num_of_classes} classes finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+            make_evac_times_plot(simulations_time, const, False)
+            make_waiting_hist(waiting_peds_all, const, False)
+
+            # Store results in the combined dataframe
+            for i in range(num_of_sim):
+                ped_data = ped_data_all[i]  # This is a dataframe for one simulation run
+                ped_data['num_of_classes'] = num_of_classes
+                ped_data['num_peds_in_class'] = num_peds_in_class
+                ped_data['simulation_iteration'] = i + 1
+                ped_data['simulation_time'] = simulations_time[i]
+
+                # Append the modified dataframe to the all_data list
+                all_data.append(ped_data)
+
+                # Create a dataframe for waiting times at each time step in this simulation
+                waiting_times_df = pd.DataFrame({
+                    'num_of_classes': [num_of_classes] * len(waiting_peds_all[i]),
+                    'num_peds_in_class': [num_peds_in_class] * len(waiting_peds_all[i]),
+                    'simulation_iteration': [i + 1] * len(waiting_peds_all[i]),
+                    'time_step': list(range(len(waiting_peds_all[i]))),
+                    'waiting_peds': waiting_peds_all[i]
+                })
+
+                # Append the waiting times dataframe to the waiting_data list
+                waiting_data.append(waiting_times_df)
+
+            # After the loop, concatenate all pedestrian data and waiting data
+            final_ped_data = pd.concat(all_data, ignore_index=True)
+            final_waiting_data = pd.concat(waiting_data, ignore_index=True)
+
+            # Save to CSV files
+            final_ped_data.to_csv('pedestrian_data.csv', index=False)
+            final_waiting_data.to_csv('waiting_data.csv', index=False)
 
 
     #======================#
@@ -570,15 +686,19 @@ if __name__ == "__main__":  # Add this line
     #======================#
 
 
-
+'''
     # Timespace fundamental diagram
     show_fundamental_diagram(ped_data_all[0], const)
 
     # Aerial plot
     show_aerial_plot(ped_data_all[0], const)
 
+    show_evacuation_times(simulations_time, const)
 
-    '''
+    show_waiting_hist(waiting_peds_all, const)
+'''
+
+'''
     # Number of subplots
     num_plots = len(waiting_peds_all)
     
@@ -614,53 +734,4 @@ if __name__ == "__main__":  # Add this line
     
     # Show the plot
     plt.show()
-    '''
-
-    print('\nEvacuation times:',simulations_time)
-    plt.hist(simulations_time, bins=10, edgecolor='black', density=True, color='green')
-
-    # Fit a normal distribution to the data
-    mu, std = stats.norm.fit(simulations_time)  # Estimate parameters
-
-    # Create an array of x values for the fitted distribution
-    x = np.linspace(min(simulations_time), max(simulations_time), 100)
-    p = stats.norm.pdf(x, mu, std)  # Calculate the PDF
-
-    # Plot the fitted distribution
-    #plt.plot(x, p, 'r-', linewidth=2, label='Fitted Normal Distribution')  # Fitted line
-    plt.xlabel('Evacuation time')
-    plt.ylabel('Frequency')
-    plt.title('Histogram of evacuation times')
-    # Save the plot to a file
-    plt.savefig('sim_time.png', bbox_inches='tight')  # Use bbox_inches='tight' to adjust the bounding box
-
-    plt.show()
-
-
-    num_of_runs = len(waiting_peds_all)
-    # Step 1: Combine all sub-arrays into one
-    combined_data = np.concatenate(waiting_peds_all)
-
-    # Step 2: Create a histogram for the combined data
-    plt.figure(figsize=(8, 6))
-    plt.hist(combined_data, bins=10, edgecolor='black', label = 'Histogram', alpha=0.7, density=True)  # Use density=True for normalized histogram
-    params = stats.expon.fit(combined_data)
-
-    # Generate x values for the fitted distribution
-    x = np.linspace(0, max(combined_data), 100)
-
-    # Calculate the PDF of the fitted distribution
-    p = stats.expon.pdf(x, *params)
-
-
-    # Plot the fitted exponential distribution
-    plt.plot(x, p, 'r-', linewidth=2, label='Fitted Exponential')  # Fitted line
-    plt.title(f'Histogram of all waiting peds during all {num_of_runs} runs')
-    plt.xlabel('Number of Waiting Peds')
-    plt.ylabel('Density')
-    plt.legend()
-
-    # Save the plot to a file
-    plt.savefig('wait_peds_hist_fitted.png', bbox_inches='tight')  # Use bbox_inches='tight' to adjust the bounding box
-
-    plt.show()
+'''
